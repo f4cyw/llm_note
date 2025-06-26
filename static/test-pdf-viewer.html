@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer Test</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 PDF Viewer Test Page</h1>
+            <p>Testing PDF viewer functionality</p>
+        </header>
+
+        <main>
+            <!-- Chat Section with PDF Viewer - ALWAYS VISIBLE FOR TESTING -->
+            <section class="chat-section" id="chatSection" style="display: block;">
+                <div class="chat-header">
+                    <div class="chat-info">
+                        <h3 id="chatTitle">💬 Chat Session (TEST)</h3>
+                        <div class="session-details">
+                            <span id="sessionDocuments">Documents: <span id="currentDocuments">Test Document</span></span>
+                            <span id="sessionMode" class="session-mode single-doc">Mode: Single Document</span>
+                        </div>
+                    </div>
+                    <div class="chat-actions">
+                        <button id="pdfToggleBtn" class="btn btn-accent">📄 Show PDF</button>
+                        <button id="newChatBtn" class="btn btn-secondary">New Document</button>
+                        <button id="sessionsBtn" class="btn btn-secondary">Sessions</button>
+                    </div>
+                </div>
+                
+                <!-- Split Layout Container -->
+                <div class="split-layout" id="splitLayout">
+                    <!-- PDF Viewer Panel -->
+                    <div class="pdf-panel" id="pdfPanel" style="display: none;">
+                        <div class="pdf-controls">
+                            <div class="pdf-navigation">
+                                <button id="prevPageBtn" class="btn btn-secondary">⬅ Prev</button>
+                                <span class="page-info">
+                                    Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+                                </span>
+                                <button id="nextPageBtn" class="btn btn-secondary">Next ➡</button>
+                            </div>
+                            <div class="pdf-zoom">
+                                <button id="zoomOutBtn" class="btn btn-secondary">🔍-</button>
+                                <span id="zoomLevel">100%</span>
+                                <button id="zoomInBtn" class="btn btn-secondary">🔍+</button>
+                            </div>
+                            <div class="pdf-documents">
+                                <select id="documentSelector" class="document-select">
+                                    <option value="">Select document...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pdf-viewer-container">
+                            <canvas id="pdfCanvas"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Resizer -->
+                    <div class="resizer" id="resizer" style="display: none;"></div>
+                    
+                    <!-- Chat Panel -->
+                    <div class="chat-container" id="chatContainer">
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="message message-assistant">
+                                <div class="message-bubble">
+                                    📄 This is a test page to check PDF viewer functionality.<br><br>
+                                    <strong>You should see a green "📄 Show PDF" button above.</strong><br><br>
+                                    If you can see it, click it to test the PDF viewer!
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="chat-input-container">
+                            <div class="chat-input">
+                                <input type="text" id="messageInput" placeholder="Test message input..." disabled />
+                                <button id="sendBtn" class="btn btn-primary" disabled>Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // Basic PDF viewer toggle for testing
+        document.getElementById('pdfToggleBtn').addEventListener('click', function() {
+            const pdfPanel = document.getElementById('pdfPanel');
+            const resizer = document.getElementById('resizer');
+            const chatContainer = document.getElementById('chatContainer');
+            const button = this;
+
+            if (pdfPanel.style.display === 'none') {
+                // Show PDF viewer
+                pdfPanel.style.display = 'flex';
+                resizer.style.display = 'block';
+                pdfPanel.style.width = '50%';
+                chatContainer.style.width = '50%';
+                button.textContent = '❌ Hide PDF';
+                
+                // Add test message
+                const messages = document.getElementById('chatMessages');
+                messages.innerHTML += `
+                    <div class="message message-assistant">
+                        <div class="message-bubble">
+                            ✅ PDF viewer opened! You should now see:<br>
+                            • PDF panel on the left<br>
+                            • Chat panel on the right<br>
+                            • Resizer divider between them<br><br>
+                            The PDF controls are ready (even though no PDF is loaded).
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Hide PDF viewer
+                pdfPanel.style.display = 'none';
+                resizer.style.display = 'none';
+                chatContainer.style.width = '100%';
+                button.textContent = '📄 Show PDF';
+                
+                // Add test message
+                const messages = document.getElementById('chatMessages');
+                messages.innerHTML += `
+                    <div class="message message-assistant">
+                        <div class="message-bubble">
+                            📄 PDF viewer hidden. Click "📄 Show PDF" to show it again.
+                        </div>
+                    </div>
+                `;
+            }
+            
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        console.log('PDF viewer test page loaded');
+        console.log('PDF toggle button:', document.getElementById('pdfToggleBtn'));
+    </script>
+</body>
+</html>

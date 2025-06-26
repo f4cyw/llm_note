@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Learning Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 LLM Learning Assistant</h1>
+            <p>Upload PDFs and ask questions about your documents</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <section class="upload-section" id="uploadSection">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <div class="upload-icon">📄</div>
+                        <h3>Upload Your PDF</h3>
+                        <p>Drag and drop a PDF file here or click to browse</p>
+                        <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+                        <button id="browseBtn" class="btn btn-primary">Browse Files</button>
+                    </div>
+                </div>
+                
+                <div class="upload-progress" id="uploadProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p id="progressText">Uploading...</p>
+                </div>
+            </section>
+
+            <!-- File List Section -->
+            <section class="files-section" id="filesSection" style="display: none;">
+                <h3>📁 Your Documents</h3>
+                <div class="file-list" id="fileList"></div>
+                
+                <!-- Multi-document Chat Session Creator -->
+                <div class="session-creator" id="sessionCreator" style="display: none;">
+                    <h4>🔗 Create Multi-Document Chat</h4>
+                    <p>Select multiple documents to chat with together:</p>
+                    <div class="document-selector" id="sessionDocumentSelector"></div>
+                    <div class="session-controls">
+                        <input type="text" id="sessionNameInput" placeholder="Session name (optional)" />
+                        <button id="createSessionBtn" class="btn btn-primary">Create Chat Session</button>
+                        <button id="cancelSessionBtn" class="btn btn-secondary">Cancel</button>
+                    </div>
+                </div>
+                
+                <!-- Quick Actions -->
+                <div class="quick-actions" id="quickActions" style="display: none;">
+                    <button id="multiDocChatBtn" class="btn btn-accent">📑 Multi-Document Chat</button>
+                </div>
+            </section>
+
+            <!-- Chat Sessions Section -->
+            <section class="sessions-section" id="sessionsSection">
+                <h3>💬 Recent Chat Sessions</h3>
+                <div class="session-list" id="sessionList"></div>
+            </section>
+
+            <!-- Chat Section with PDF Viewer -->
+            <section class="chat-section" id="chatSection" style="display: none;">
+                <div class="chat-header">
+                    <div class="chat-info">
+                        <h3 id="chatTitle">💬 Chat Session</h3>
+                        <div class="session-details">
+                            <span id="sessionDocuments">Documents: <span id="currentDocuments"></span></span>
+                            <span id="sessionMode" class="session-mode">Mode: Single Document</span>
+                        </div>
+                    </div>
+                    <div class="chat-actions">
+                        <button id="pdfToggleBtn" class="btn btn-accent">📄 Toggle PDF</button>
+                        <button id="newChatBtn" class="btn btn-secondary">New Document</button>
+                        <button id="sessionsBtn" class="btn btn-secondary">Sessions</button>
+                    </div>
+                </div>
+                
+                <!-- Split Layout Container -->
+                <div class="split-layout" id="splitLayout">
+                    <!-- PDF Viewer Panel -->
+                    <div class="pdf-panel" id="pdfPanel" style="display: none;">
+                        <div class="pdf-controls">
+                            <div class="pdf-navigation">
+                                <button id="prevPageBtn" class="btn btn-secondary">⬅ Prev</button>
+                                <span class="page-info">
+                                    Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+                                </span>
+                                <button id="nextPageBtn" class="btn btn-secondary">Next ➡</button>
+                            </div>
+                            <div class="pdf-zoom">
+                                <button id="zoomOutBtn" class="btn btn-secondary">🔍-</button>
+                                <span id="zoomLevel">100%</span>
+                                <button id="zoomInBtn" class="btn btn-secondary">🔍+</button>
+                            </div>
+                            <div class="pdf-documents">
+                                <select id="documentSelector" class="document-select">
+                                    <option value="">Select document...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="pdf-viewer-container" id="pdfViewerContainer">
+                            <div class="pdf-container" id="pdfContainer">
+                                <canvas id="pdfCanvas"></canvas>
+                                <div id="pdfTextLayer" class="pdf-text-layer"></div>
+                            </div>
+                            <!-- Selection Popup -->
+                            <div id="selectionPopup" class="selection-popup" style="display: none;">
+                                <button id="askBtn">Ask about this</button>
+                                <button id="translateBtn">Translate</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Resizer -->
+                    <div class="resizer" id="resizer" style="display: none;"></div>
+                    
+                    <!-- Chat Panel -->
+                    <div class="chat-container" id="chatContainer">
+                        <div class="chat-messages" id="chatMessages"></div>
+                        
+                        <div class="chat-input-container">
+                            <div class="chat-controls">
+                                <label for="responseLanguage">Response Language:</label>
+                                <select id="responseLanguage" class="language-select">
+                                    <option value="English">🇺🇸 English</option>
+                                    <option value="Korean">🇰🇷 Korean (한국어)</option>
+                                    <option value="Japanese">🇯🇵 Japanese (日本語)</option>
+                                    <option value="Chinese">🇨🇳 Chinese (中文)</option>
+                                    <option value="Spanish">🇪🇸 Spanish (Español)</option>
+                                    <option value="French">🇫🇷 French (Français)</option>
+                                    <option value="German">🇩🇪 German (Deutsch)</option>
+                                    <option value="Italian">🇮🇹 Italian (Italiano)</option>
+                                    <option value="Portuguese">🇵🇹 Portuguese (Português)</option>
+                                    <option value="Russian">🇷🇺 Russian (Русский)</option>
+                                </select>
+                            </div>
+                            <div class="chat-input">
+                                <input type="text" id="messageInput" placeholder="Ask a question about your document..." />
+                                <button id="sendBtn" class="btn btn-primary">Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

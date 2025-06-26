@@ -1,0 +1,9 @@
+.env
+myenv/
+.claude/
+__pycache__/
+server.log
+CLAUDE.md
+project_plan.md
+test_document.py
+test_document.pdf
