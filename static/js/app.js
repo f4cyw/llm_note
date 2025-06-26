@@ -11,9 +11,23 @@ class LLMAssistant {
         this.currentPage = 1;
         this.totalPages = 1;
         this.scale = 1.0;
+        this.isAreaSelectionMode = false;
+        this.areaSelectionStart = null;
+        this.currentSelectionBox = null;
+        this.selectedAreaCoords = null;
+        this.documentAreas = [];
+        this.selectedAreaImage = null;
+        this.areaMemory = []; // Store selected areas for reuse
+        
+        // Bind area selection functions once to maintain references
+        this.boundStartAreaSelection = this.startAreaSelection.bind(this);
+        this.boundUpdateAreaSelection = this.updateAreaSelection.bind(this);
+        this.boundFinishAreaSelection = this.finishAreaSelection.bind(this);
+        
         this.initializeEventListeners();
         this.loadExistingSessions();
         this.initializePdfViewer();
+        this.loadAreaMemory();
     }
 
     initializeEventListeners() {
@@ -94,6 +108,12 @@ class LLMAssistant {
         newChatBtn.addEventListener('click', () => this.showUploadSection());
         sessionsBtn.addEventListener('click', () => this.toggleSessionsSection());
 
+        // Chat toggle button
+        const chatToggle = document.getElementById('chatToggle');
+        if (chatToggle) {
+            chatToggle.addEventListener('click', () => this.toggleChatPanel());
+        }
+
         // PDF viewer events
         const pdfToggleBtn = document.getElementById('pdfToggleBtn');
         const prevPageBtn = document.getElementById('prevPageBtn');
@@ -122,6 +142,44 @@ class LLMAssistant {
         document.addEventListener('selectionchange', () => this.handleTextSelection());
         document.getElementById('askBtn').addEventListener('click', () => this.askAboutSelection());
         document.getElementById('translateBtn').addEventListener('click', () => this.translateSelection());
+
+        // Area selection events
+        const toggleAreaSelectionBtn = document.getElementById('toggleAreaSelection');
+        const saveAreaBtn = document.getElementById('saveAreaBtn');
+        const cancelAreaBtn = document.getElementById('cancelAreaBtn');
+        
+        if (toggleAreaSelectionBtn) {
+            toggleAreaSelectionBtn.addEventListener('click', () => this.toggleAreaSelectionMode());
+        }
+
+        // Clear area selections button
+        const clearAreaSelectionsBtn = document.getElementById('clearAreaSelections');
+        if (clearAreaSelectionsBtn) {
+            console.log('Clear button found, attaching listener');
+            clearAreaSelectionsBtn.addEventListener('click', (e) => {
+                console.log('Clear button clicked');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Confirm action
+                if (confirm('Clear all selected areas?')) {
+                    this.clearAreaMemory();
+                    this.cancelAreaSelection();
+                    this.updateAreaMemoryDisplay();
+                    alert('Areas cleared!');
+                }
+            });
+        } else {
+            console.log('Clear button not found');
+        }
+        if (saveAreaBtn) {
+            saveAreaBtn.addEventListener('click', () => this.saveSelectedArea());
+        }
+        if (cancelAreaBtn) {
+            cancelAreaBtn.addEventListener('click', () => this.cancelAreaSelection());
+        }
+
+        // Area tag button events will be attached when popup is shown
 
         // Language selection events
         const responseLanguage = document.getElementById('responseLanguage');
@@ -927,6 +985,11 @@ You can upload more documents or start chatting! Use "Start Chat" for this docum
 
             console.log(`Rendered page ${this.currentPage} at scale ${this.scale} (${Math.round(this.scale * 100)}%) - Canvas: ${viewport.width}x${viewport.height}`);
 
+            // Update areas display if in area selection mode
+            if (this.isAreaSelectionMode) {
+                this.updateAreasDisplay();
+            }
+
         } catch (error) {
             console.error('Error rendering page:', error);
         }
@@ -1258,8 +1321,27 @@ You can upload more documents or start chatting! Use "Start Chat" for this docum
         try {
             // Add language instruction to the message if not English
             let enhancedMessage = message;
+            
+            // Include selected area image if available
+            if (this.selectedAreaImage) {
+                enhancedMessage = `Question about selected area from PDF:\n\nUser question: ${message}`;
+            }
+            
             if (responseLanguage !== 'English') {
-                enhancedMessage = `${message}\n\n[Please respond in ${responseLanguage}]`;
+                enhancedMessage = `${enhancedMessage}\n\n[Please respond in ${responseLanguage}]`;
+            }
+
+            const requestBody = { 
+                message: enhancedMessage,
+                response_language: responseLanguage
+            };
+            
+            // Add image if available
+            if (this.selectedAreaImage) {
+                requestBody.image = this.selectedAreaImage;
+                // Clear the selected area image after using it
+                this.selectedAreaImage = null;
+                messageInput.placeholder = "Ask a question about your document...";
             }
 
             const response = await fetch(`${this.apiBaseUrl}/sessions/${this.currentSessionId}/chat`, {
@@ -1267,10 +1349,7 @@ You can upload more documents or start chatting! Use "Start Chat" for this docum
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ 
-                    message: enhancedMessage,
-                    response_language: responseLanguage
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
@@ -1448,6 +1527,544 @@ You can upload more documents or start chatting! Use "Start Chat" for this docum
 
     showSuccess(message) {
         alert(`✅ ${message}`);
+    }
+
+    // Area Selection Methods
+    toggleAreaSelectionMode() {
+        this.isAreaSelectionMode = !this.isAreaSelectionMode;
+        const toggleBtn = document.getElementById('toggleAreaSelection');
+        const pdfContainer = document.getElementById('pdfContainer');
+        const hint = document.querySelector('.area-selection-hint');
+        const clearBtn = document.getElementById('clearAreaSelections');
+        
+        if (this.isAreaSelectionMode) {
+            toggleBtn.classList.add('active');
+            toggleBtn.textContent = '❌ Cancel Area Selection';
+            pdfContainer.classList.add('area-selection-mode');
+            if (hint) hint.style.display = 'block';
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+            
+            // Add mouse events for area selection
+            this.initializeAreaSelection();
+        } else {
+            toggleBtn.classList.remove('active');
+            toggleBtn.textContent = '🔍 Select Area to Ask Questions';
+            pdfContainer.classList.remove('area-selection-mode');
+            if (hint) hint.style.display = 'none';
+            if (clearBtn) clearBtn.style.display = 'none';
+            
+            // Remove mouse events
+            this.removeAreaSelection();
+            
+            // Clear any active selection
+            this.cancelAreaSelection();
+        }
+    }
+
+    initializeAreaSelection() {
+        const pdfContainer = document.getElementById('pdfContainer');
+        
+        pdfContainer.addEventListener('mousedown', this.boundStartAreaSelection);
+        pdfContainer.addEventListener('mousemove', this.boundUpdateAreaSelection);
+        pdfContainer.addEventListener('mouseup', this.boundFinishAreaSelection);
+    }
+
+    removeAreaSelection() {
+        const pdfContainer = document.getElementById('pdfContainer');
+        
+        pdfContainer.removeEventListener('mousedown', this.boundStartAreaSelection);
+        pdfContainer.removeEventListener('mousemove', this.boundUpdateAreaSelection);
+        pdfContainer.removeEventListener('mouseup', this.boundFinishAreaSelection);
+    }
+
+    startAreaSelection(e) {
+        if (!this.isAreaSelectionMode) return;
+        
+        const rect = e.target.closest('#pdfContainer').getBoundingClientRect();
+        this.areaSelectionStart = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+        
+        // Create selection box
+        this.currentSelectionBox = document.createElement('div');
+        this.currentSelectionBox.className = 'area-selection-box';
+        document.getElementById('pdfContainer').appendChild(this.currentSelectionBox);
+        
+        e.preventDefault();
+    }
+
+    updateAreaSelection(e) {
+        if (!this.isAreaSelectionMode || !this.areaSelectionStart || !this.currentSelectionBox) return;
+        
+        const rect = e.target.closest('#pdfContainer').getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+        
+        const left = Math.min(this.areaSelectionStart.x, currentX);
+        const top = Math.min(this.areaSelectionStart.y, currentY);
+        const width = Math.abs(currentX - this.areaSelectionStart.x);
+        const height = Math.abs(currentY - this.areaSelectionStart.y);
+        
+        this.currentSelectionBox.style.left = left + 'px';
+        this.currentSelectionBox.style.top = top + 'px';
+        this.currentSelectionBox.style.width = width + 'px';
+        this.currentSelectionBox.style.height = height + 'px';
+    }
+
+    finishAreaSelection(e) {
+        if (!this.isAreaSelectionMode || !this.areaSelectionStart || !this.currentSelectionBox) return;
+        
+        const rect = e.target.closest('#pdfContainer').getBoundingClientRect();
+        const currentX = e.clientX - rect.left;
+        const currentY = e.clientY - rect.top;
+        
+        const left = Math.min(this.areaSelectionStart.x, currentX);
+        const top = Math.min(this.areaSelectionStart.y, currentY);
+        const width = Math.abs(currentX - this.areaSelectionStart.x);
+        const height = Math.abs(currentY - this.areaSelectionStart.y);
+        
+        // Only process area if large enough
+        if (width > 10 && height > 10) {
+            this.selectedAreaCoords = { x: left, y: top, width, height };
+            
+            // Immediately extract text and prepare for questioning
+            this.processSelectedArea();
+        } else {
+            this.cancelAreaSelection();
+        }
+    }
+
+    async processSelectedArea() {
+        if (!this.selectedAreaCoords || !this.currentPdf) {
+            console.error('No area selected or no PDF loaded');
+            return;
+        }
+        
+        try {
+            // Capture screenshot of selected area
+            console.log('Capturing screenshot of selected area:', this.selectedAreaCoords);
+            
+            const areaScreenshot = await this.captureAreaScreenshot(this.selectedAreaCoords);
+            if (areaScreenshot) {
+                this.selectedAreaImage = areaScreenshot;
+                
+                // Save to area memory for reuse
+                this.saveAreaToMemory({
+                    coordinates: this.selectedAreaCoords,
+                    pageNumber: this.currentPageNum,
+                    documentId: this.currentPdf,
+                    image: areaScreenshot,
+                    timestamp: Date.now()
+                });
+                
+                // Show selection in chat and focus input
+                this.showSelectedAreaInChat(null, areaScreenshot);
+                this.focusMessageInput();
+                
+                // Clean up selection
+                this.cleanupAreaSelection();
+                
+                // Update area memory display
+                this.updateAreaMemoryDisplay();
+            } else {
+                this.showError('Failed to capture area screenshot');
+            }
+            
+        } catch (error) {
+            console.error('Error processing selected area:', error);
+            this.showError('Error processing selected area');
+        }
+    }
+
+    async captureAreaScreenshot(coordinates) {
+        try {
+            const canvas = document.getElementById('pdfCanvas');
+            const rect = canvas.getBoundingClientRect();
+            
+            // Calculate scale factor between canvas and displayed size
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            // Adjust coordinates for actual canvas size
+            const actualCoords = {
+                x: coordinates.x * scaleX,
+                y: coordinates.y * scaleY,
+                width: coordinates.width * scaleX,
+                height: coordinates.height * scaleY
+            };
+            
+            // Create a temporary canvas for the cropped area
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = actualCoords.width;
+            tempCanvas.height = actualCoords.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw the selected area from the main canvas
+            tempCtx.drawImage(
+                canvas,
+                actualCoords.x, actualCoords.y, actualCoords.width, actualCoords.height,
+                0, 0, actualCoords.width, actualCoords.height
+            );
+            
+            // Convert to base64 image
+            return tempCanvas.toDataURL('image/png');
+            
+        } catch (error) {
+            console.error('Error capturing area screenshot:', error);
+            return null;
+        }
+    }
+
+    showSelectedAreaInChat(text, imageData) {
+        const messagesContainer = document.getElementById('chatMessages');
+        
+        // Add a message showing what was selected
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message user-message';
+        
+        let content = `
+            <div class="message-content">
+                <div class="selected-area-indicator">
+                    📸 <strong>Selected area from page ${this.currentPageNum}:</strong>
+                </div>
+        `;
+        
+        if (imageData) {
+            content += `
+                <div class="selected-image">
+                    <img src="${imageData}" style="max-width: 300px; border: 2px solid #667eea; border-radius: 8px; margin: 8px 0;">
+                </div>
+            `;
+        } else if (text) {
+            content += `<div class="selected-text">"${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"</div>`;
+        }
+        
+        content += `
+                <div class="area-prompt">What would you like to know about this selection?</div>
+            </div>
+        `;
+        
+        messageDiv.innerHTML = content;
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    focusMessageInput() {
+        const messageInput = document.getElementById('messageInput');
+        if (messageInput) {
+            messageInput.focus();
+            messageInput.placeholder = "Ask about the selected area...";
+        }
+    }
+    
+    cleanupAreaSelection() {
+        // Remove selection box
+        if (this.currentSelectionBox) {
+            this.currentSelectionBox.remove();
+            this.currentSelectionBox = null;
+        }
+        
+        // Reset state but keep area selection mode active
+        this.areaSelectionStart = null;
+        this.selectedAreaCoords = null;
+        
+        console.log('Area selection cleaned up, ready for next selection');
+    }
+
+    // Area Memory Management
+    loadAreaMemory() {
+        try {
+            const stored = localStorage.getItem('areaMemory');
+            this.areaMemory = stored ? JSON.parse(stored) : [];
+            this.updateAreaMemoryDisplay();
+        } catch (error) {
+            console.error('Error loading area memory:', error);
+            this.areaMemory = [];
+        }
+    }
+
+    saveAreaToMemory(areaData) {
+        // Add unique ID
+        areaData.id = `area_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Add to beginning of array (most recent first)
+        this.areaMemory.unshift(areaData);
+        
+        // Keep only last 10 areas to prevent storage bloat
+        this.areaMemory = this.areaMemory.slice(0, 10);
+        
+        // Save to localStorage
+        try {
+            localStorage.setItem('areaMemory', JSON.stringify(this.areaMemory));
+        } catch (error) {
+            console.error('Error saving area memory:', error);
+        }
+    }
+
+    updateAreaMemoryDisplay() {
+        const hint = document.querySelector('.area-selection-hint');
+        if (hint && this.isAreaSelectionMode) {
+            if (this.areaMemory.length > 0) {
+                hint.innerHTML = `
+                    <div style="margin-bottom: 8px;">Drag to select new areas, or click to reuse:</div>
+                    <div class="recent-areas">
+                        ${this.areaMemory.slice(0, 3).map((area, index) => `
+                            <img src="${area.image}" 
+                                 class="recent-area-thumbnail" 
+                                 data-area-id="${area.id}"
+                                 title="Page ${area.pageNumber} - Click to reuse"
+                                 style="width: 60px; height: 40px; object-fit: cover; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; cursor: pointer;">
+                        `).join('')}
+                        ${this.areaMemory.length > 3 ? `<span style="color: #888; font-size: 0.8em;">+${this.areaMemory.length - 3} more</span>` : ''}
+                    </div>
+                `;
+                
+                // Add click handlers for thumbnails
+                hint.querySelectorAll('.recent-area-thumbnail').forEach(thumbnail => {
+                    thumbnail.addEventListener('click', (e) => {
+                        const areaId = e.target.dataset.areaId;
+                        this.reuseAreaFromMemory(areaId);
+                    });
+                });
+            } else {
+                // Show simple message when no areas are stored
+                hint.innerHTML = '<div style="margin-bottom: 8px;">Drag to select text areas, then ask questions about them</div>';
+            }
+        }
+    }
+
+    reuseAreaFromMemory(areaId) {
+        const area = this.areaMemory.find(a => a.id === areaId);
+        if (area) {
+            // Set the selected image and show in chat
+            this.selectedAreaImage = area.image;
+            this.showSelectedAreaInChat(null, area.image);
+            this.focusMessageInput();
+            
+            console.log(`Reusing area from page ${area.pageNumber}`);
+        }
+    }
+
+    // UI Layout Management
+    toggleChatPanel() {
+        const chatContainer = document.getElementById('chatContainer');
+        const pdfPanel = document.getElementById('pdfPanel');
+        const chatToggle = document.getElementById('chatToggle');
+        const resizer = document.getElementById('resizer');
+        
+        if (chatContainer.classList.contains('minimized')) {
+            // Expand chat
+            chatContainer.classList.remove('minimized');
+            pdfPanel.classList.remove('fullwidth');
+            pdfPanel.style.width = '70%';
+            chatToggle.textContent = '❌';
+            chatToggle.title = 'Minimize Chat';
+            if (resizer) resizer.style.display = 'block';
+            
+            // Remove minimized indicator if exists
+            const indicator = document.querySelector('.chat-minimized-indicator');
+            if (indicator) indicator.remove();
+            
+        } else {
+            // Minimize chat
+            chatContainer.classList.add('minimized');
+            pdfPanel.classList.add('fullwidth');
+            pdfPanel.style.width = 'calc(100% - 60px)';
+            chatToggle.textContent = '💬';
+            chatToggle.title = 'Expand Chat';
+            if (resizer) resizer.style.display = 'none';
+            
+            // Add minimized indicator
+            const indicator = document.createElement('div');
+            indicator.className = 'chat-minimized-indicator';
+            indicator.textContent = 'Chat';
+            indicator.onclick = () => this.toggleChatPanel();
+            document.body.appendChild(indicator);
+        }
+    }
+
+    selectAreaType(type) {
+        console.log('Selecting area type:', type);
+        
+        // Update tag button selection
+        document.querySelectorAll('.tag-button').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+        
+        const selectedBtn = document.querySelector(`[data-type="${type}"]`);
+        if (selectedBtn) {
+            selectedBtn.classList.add('selected');
+            this.selectedAreaType = type;
+            console.log('Area type set to:', this.selectedAreaType);
+            
+            // Enable save button
+            const saveBtn = document.getElementById('saveAreaBtn');
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+            }
+        } else {
+            console.error('Tag button not found for type:', type);
+        }
+    }
+
+    async saveSelectedArea() {
+        if (!this.selectedAreaCoords || !this.selectedAreaType || !this.currentPdf) {
+            this.showError('Please select an area and choose a type');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/files/${this.currentPdf}/areas`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    area_type: this.selectedAreaType,
+                    page_number: this.currentPage,
+                    coordinates: this.selectedAreaCoords
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to save area: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            this.showSuccess(`${this.selectedAreaType} area saved successfully!`);
+            
+            // Refresh areas display
+            this.loadDocumentAreas();
+            
+            // Clean up
+            this.cancelAreaSelection();
+            
+        } catch (error) {
+            console.error('Error saving area:', error);
+            this.showError(`Failed to save area: ${error.message}`);
+        }
+    }
+
+    cancelAreaSelection() {
+        // Remove current selection box
+        if (this.currentSelectionBox) {
+            this.currentSelectionBox.remove();
+            this.currentSelectionBox = null;
+        }
+        
+        // Remove any lingering selection boxes
+        document.querySelectorAll('.area-selection-box').forEach(box => {
+            box.remove();
+        });
+        
+        // Hide popup
+        const popup = document.getElementById('areaTaggingPopup');
+        if (popup) {
+            popup.style.display = 'none';
+        }
+        
+        // Reset state
+        this.areaSelectionStart = null;
+        this.selectedAreaCoords = null;
+        this.selectedAreaType = null;
+        this.selectedAreaImage = null; // Clear image data
+        
+        // Reset input placeholder
+        const messageInput = document.getElementById('messageInput');
+        if (messageInput) {
+            messageInput.placeholder = "Ask a question about your document...";
+        }
+        
+        console.log('Area selection cancelled and overlays cleared');
+    }
+
+    clearAreaMemory() {
+        console.log('Clearing area memory...');
+        
+        // Clear stored area memory
+        this.areaMemory = [];
+        
+        // Clear localStorage
+        try {
+            localStorage.removeItem('areaMemory');
+            console.log('localStorage cleared');
+        } catch (error) {
+            console.error('Error clearing localStorage:', error);
+        }
+        
+        // Clear any current selection
+        this.selectedAreaImage = null;
+        this.selectedAreaCoords = null;
+        
+        // Reset hint display
+        const hint = document.querySelector('.area-selection-hint');
+        if (hint && this.isAreaSelectionMode) {
+            hint.innerHTML = '<div style="margin-bottom: 8px;">Drag to select new areas</div>';
+        }
+        
+        console.log('Area memory cleared, count:', this.areaMemory.length);
+    }
+
+    async loadDocumentAreas() {
+        if (!this.currentPdf) return;
+        
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/files/${this.currentPdf}/areas`);
+            if (response.ok) {
+                const data = await response.json();
+                this.documentAreas = data.areas || [];
+                this.updateAreasDisplay();
+            }
+        } catch (error) {
+            console.error('Error loading document areas:', error);
+        }
+    }
+
+    updateAreasDisplay() {
+        const savedAreasDiv = document.getElementById('savedAreas');
+        savedAreasDiv.innerHTML = '';
+        
+        const currentPageAreas = this.documentAreas.filter(area => area.page_number === this.currentPage);
+        
+        if (currentPageAreas.length === 0) {
+            savedAreasDiv.innerHTML = '<p style="text-align: center; color: #666; font-size: 0.8rem;">No areas tagged on this page</p>';
+            return;
+        }
+        
+        currentPageAreas.forEach(area => {
+            const areaItem = document.createElement('div');
+            areaItem.className = 'saved-area-item';
+            areaItem.innerHTML = `
+                <div>
+                    <span class="area-type-badge ${area.area_type}">${area.area_type}</span>
+                    <span>Page ${area.page_number}</span>
+                </div>
+                <button class="delete-area" onclick="app.deleteArea('${area.id}')">×</button>
+            `;
+            savedAreasDiv.appendChild(areaItem);
+        });
+    }
+
+    async deleteArea(areaId) {
+        if (!confirm('Delete this tagged area?')) return;
+        
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/files/${this.currentPdf}/areas/${areaId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                this.showSuccess('Area deleted successfully');
+                this.loadDocumentAreas();
+            } else {
+                throw new Error('Failed to delete area');
+            }
+        } catch (error) {
+            console.error('Error deleting area:', error);
+            this.showError('Failed to delete area');
+        }
     }
 }
 

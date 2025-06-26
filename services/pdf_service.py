@@ -55,6 +55,44 @@ class PDFService:
         except Exception as e:
             logging.error(f"Error extracting text from coordinates: {e}")
             raise
+
+    async def extract_text_from_area(self, pdf_content: bytes, page_number: int, coordinates: Dict) -> str:
+        """Extract text from a specific area defined by coordinates"""
+        try:
+            # For now, extract from the entire page
+            # TODO: Implement precise coordinate-based extraction using pdfminer
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
+            
+            if page_number > len(pdf_reader.pages):
+                raise ValueError(f"Page {page_number} does not exist")
+            
+            page = pdf_reader.pages[page_number - 1]
+            
+            # Extract all text from the page
+            # In a full implementation, we would:
+            # 1. Use pdfminer.six to get text with exact coordinates
+            # 2. Filter text elements within the specified area
+            # 3. Return only text from the selected region
+            
+            full_text = page.extract_text()
+            
+            # For demo purposes, return a portion of the text based on area size
+            x, y, width, height = coordinates.get('x', 0), coordinates.get('y', 0), coordinates.get('width', 100), coordinates.get('height', 100)
+            
+            # Simple heuristic: if the area is small, return a smaller portion
+            area_ratio = (width * height) / (595 * 842)  # Approximate A4 page size
+            
+            if area_ratio < 0.1:  # Small area
+                words = full_text.split()
+                num_words = max(10, int(len(words) * area_ratio * 2))
+                start_word = int((y / 842) * len(words))
+                return " ".join(words[start_word:start_word + num_words])
+            else:
+                return full_text
+                
+        except Exception as e:
+            logging.error(f"Error extracting text from area: {e}")
+            return ""
     
     def chunk_text(self, text: str) -> List[str]:
         """Split text into chunks for embedding"""

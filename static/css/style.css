@@ -32,20 +32,22 @@ body {
 
 header {
     text-align: center;
-    margin-bottom: 20px; /* Reduced margin */
+    margin-bottom: 5px; /* Minimal margin */
     color: white;
-    flex-shrink: 0; /* Prevent header from shrinking */
+    flex-shrink: 0;
+    padding: 4px 0; /* Minimal padding */
 }
 
 header h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
+    font-size: 1.4rem; /* Much smaller title */
+    margin-bottom: 2px; /* Minimal margin */
     text-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
 header p {
-    font-size: 1.2rem;
+    font-size: 0.85rem; /* Much smaller subtitle */
     opacity: 0.9;
+    margin: 0;
 }
 
 main {
@@ -400,23 +402,23 @@ main {
 .chat-header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 15px 20px; /* Adjusted padding */
+    padding: 4px 10px; /* Ultra compact */
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-shrink: 0; /* Prevent header from shrinking */
+    flex-shrink: 0;
 }
 
 .chat-info h3 {
     margin: 0;
-    font-size: 1.2rem;
-    margin-bottom: 3px;
+    font-size: 0.9rem; /* Smaller title */
+    margin-bottom: 1px;
 }
 
 .session-details {
     display: flex;
-    gap: 15px;
-    font-size: 0.85rem;
+    gap: 8px; /* Smaller gap */
+    font-size: 0.75rem; /* Much smaller text */
     opacity: 0.9;
 }
 
@@ -437,8 +439,9 @@ main {
 .split-layout {
     display: flex;
     flex: 1;
-    height: 100%; /* Ensure it takes full height of chat-section */
+    height: 100%;
     min-height: 0;
+    position: relative;
 }
 
 .pdf-panel {
@@ -446,9 +449,34 @@ main {
     border-right: 2px solid #e0e0e0;
     display: flex;
     flex-direction: column;
-    width: 50%;
-    min-width: 280px; /* Slightly smaller min-width */
-    flex-shrink: 0; /* Prevent PDF panel from shrinking */
+    width: 70%; /* Larger PDF panel by default */
+    min-width: 500px; /* Much larger min-width for better viewing */
+    flex-shrink: 0;
+    transition: width 0.3s ease;
+}
+
+.pdf-panel.fullwidth {
+    width: calc(100% - 60px); /* Leave space for minimized chat toggle */
+}
+
+.chat-toggle {
+    position: absolute;
+    top: 20px;
+    right: 10px;
+    width: 40px;
+    height: 40px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    font-size: 18px;
+    transition: all 0.3s ease;
 }
 
 .resizer {
@@ -469,20 +497,46 @@ main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-width: 280px; /* Slightly smaller min-width */
+    min-width: 300px;
+    width: 30%; /* Smaller chat panel by default */
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.chat-container.minimized {
+    min-width: 0;
+    width: 0;
+    overflow: hidden;
+}
+
+.chat-minimized-indicator {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #667eea;
+    color: white;
+    padding: 10px;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    cursor: pointer;
+    z-index: 150;
+    font-size: 14px;
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
 }
 
 /* PDF Controls */
 .pdf-controls {
     background: #f8f9fa;
     border-bottom: 1px solid #e0e0e0;
-    padding: 10px 15px; /* Adjusted padding */
+    padding: 4px 10px; /* Much smaller padding */
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
-    flex-shrink: 0; /* Prevent controls from shrinking */
+    gap: 6px; /* Smaller gap */
+    flex-shrink: 0;
 }
 
 .pdf-navigation {
@@ -653,6 +707,218 @@ main {
 
 .selection-popup button:hover {
     background-color: #764ba2;
+}
+
+/* Selected area display in chat */
+.selected-area-indicator {
+    color: #667eea;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+}
+
+.selected-text {
+    background: #f8f9ff;
+    border-left: 3px solid #667eea;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-style: italic;
+    color: #555;
+    border-radius: 4px;
+}
+
+.area-prompt {
+    color: #27ae60;
+    font-weight: 500;
+    margin-top: 8px;
+    font-size: 0.95em;
+}
+
+/* Area Selection Mode */
+.area-selection-mode {
+    cursor: crosshair !important;
+}
+
+.area-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.clear-areas {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.3s ease;
+}
+
+.clear-areas:hover {
+    background: #c0392b;
+    transform: translateY(-1px);
+}
+
+.area-selection-box {
+    position: absolute;
+    border: 2px dashed #667eea;
+    background: rgba(102, 126, 234, 0.1);
+    pointer-events: none;
+    z-index: 50;
+}
+
+.area-tagging-popup {
+    position: absolute;
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    padding: 15px;
+    z-index: 150;
+    min-width: 250px;
+}
+
+.area-tagging-popup h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 1rem;
+}
+
+.tag-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.tag-button {
+    padding: 8px 16px;
+    border: 2px solid #ddd;
+    background: white;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.3s ease;
+}
+
+.tag-button.problem {
+    border-color: #e74c3c;
+    color: #e74c3c;
+}
+
+.tag-button.problem.selected {
+    background: #e74c3c;
+    color: white;
+}
+
+.tag-button.solution {
+    border-color: #27ae60;
+    color: #27ae60;
+}
+
+.tag-button.solution.selected {
+    background: #27ae60;
+    color: white;
+}
+
+.area-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.area-actions button {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.save-area {
+    background: #667eea;
+    color: white;
+}
+
+.cancel-area {
+    background: #95a5a6;
+    color: white;
+}
+
+/* Area Selection Toggle */
+.area-selection-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px; /* Much smaller margin */
+}
+
+.toggle-area-selection {
+    padding: 4px 8px; /* Smaller padding */
+    border: 1px solid #667eea; /* Thinner border */
+    background: white;
+    color: #667eea;
+    border-radius: 4px; /* Smaller radius */
+    cursor: pointer;
+    font-size: 0.8rem; /* Smaller font */
+    transition: all 0.3s ease;
+}
+
+.toggle-area-selection.active {
+    background: #667eea;
+    color: white;
+}
+
+.toggle-area-selection:hover {
+    background: #f0f4ff;
+}
+
+.toggle-area-selection.active:hover {
+    background: #5a6fd8;
+}
+
+/* Saved Areas Display */
+.saved-areas {
+    margin-top: 10px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.saved-area-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 0.8rem;
+}
+
+.area-type-badge {
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.area-type-badge.problem {
+    background: #e74c3c;
+    color: white;
+}
+
+.area-type-badge.solution {
+    background: #27ae60;
+    color: white;
+}
+
+.delete-area {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 0.7rem;
 }
 
 .chat-messages {

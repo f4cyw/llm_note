@@ -90,3 +90,12 @@ class VectorService:
         except Exception as e:
             logging.error(f"Error deleting document chunks: {e}")
             raise
+
+    async def delete_by_metadata(self, where_clause: Dict[str, Any]):
+        """Delete documents by metadata filters"""
+        try:
+            self.collection.delete(where=where_clause)
+            logging.info(f"Deleted documents matching: {where_clause}")
+        except Exception as e:
+            logging.error(f"Error deleting by metadata: {e}")
+            raise

@@ -368,8 +368,15 @@ async def chat_with_session(session_id: str, query: dict):
     """Chat with documents in a session (supports multi-document context)"""
     try:
         user_question = query.get("message", "")
+        user_image = query.get("image", None)  # Base64 encoded image
         if not user_question:
             raise HTTPException(status_code=400, detail="Message is required")
+        
+        # Debug logging
+        if user_image:
+            logger.info(f"Received image data: {len(user_image)} characters")
+        else:
+            logger.info("No image data received")
         
         # Get session info and file IDs
         session_info = chat_manager.get_session_info(session_id)
@@ -391,68 +398,128 @@ async def chat_with_session(session_id: str, query: dict):
                 conversation_context += f"{msg['role'].capitalize()}: {msg['content']}\n"
             conversation_context += "\n"
         
-        # Collect document context from all files
+        # Collect document context from all files with problem-solution priority
         all_relevant_chunks = []
         document_info = []
+        problem_solution_chunks = []
         
         for file_id in file_ids:
             file_info = db.get_file(file_id)
             if file_info:
                 document_info.append(f"Document: {file_info['filename']}")
                 
-                # Try RAG first, fallback to text search
-                if file_info["status"] == "completed":
-                    try:
+                # First, check for problem/solution areas
+                try:
+                    problem_areas = db.get_document_areas(file_id, "problem")
+                    solution_areas = db.get_document_areas(file_id, "solution")
+                    
+                    # Search problem-solution areas with embeddings for better matches
+                    if file_info["status"] == "completed":
                         query_embedding = await gemini_service.generate_query_embedding(user_question)
+                        
+                        # Search specifically in problem/solution areas
+                        area_search_results = await vector_service.search_by_metadata(
+                            {"file_id": file_id, "chunk_type": {"$in": ["problem_area", "solution_area"]}}, 
+                            n_results=3
+                        )
+                        
+                        if area_search_results["documents"]:
+                            for doc, metadata in zip(area_search_results["documents"], area_search_results["metadatas"]):
+                                area_type = metadata.get("area_type", "unknown")
+                                problem_solution_chunks.append(
+                                    f"From {file_info['filename']} [{area_type.upper()} AREA]: {doc}"
+                                )
+                        
+                        # Regular RAG search as fallback
                         search_results = await vector_service.search_similar(query_embedding, n_results=2)
                         if search_results["documents"]:
                             all_relevant_chunks.extend([
                                 f"From {file_info['filename']}: {doc}" 
                                 for doc in search_results["documents"]
                             ])
+                            
+                    else:
+                        # Fallback: search problem/solution content directly
+                        for area in problem_areas + solution_areas:
+                            if area["content"] and user_question.lower() in area["content"].lower():
+                                problem_solution_chunks.append(
+                                    f"From {file_info['filename']} [{area['area_type'].upper()} AREA]: {area['content'][:500]}..."
+                                )
+                                
+                except Exception as e:
+                    logger.warning(f"Problem-solution search failed for {file_id}: {e}")
+                
+                # Fallback to general text search if needed
+                if not problem_solution_chunks and not all_relevant_chunks:
+                    try:
+                        if file_info["status"] == "completed":
+                            query_embedding = await gemini_service.generate_query_embedding(user_question)
+                            search_results = await vector_service.search_similar(query_embedding, n_results=2)
+                            if search_results["documents"]:
+                                all_relevant_chunks.extend([
+                                    f"From {file_info['filename']}: {doc}" 
+                                    for doc in search_results["documents"]
+                                ])
+                        else:
+                            relevant_chunks = text_storage.search_text(file_id, user_question, limit=2)
+                            if relevant_chunks:
+                                all_relevant_chunks.extend([
+                                    f"From {file_info['filename']}: {chunk}" 
+                                    for chunk in relevant_chunks
+                                ])
                     except Exception as e:
-                        logger.warning(f"RAG search failed for {file_id}: {e}")
-                        # Fallback to text search
-                        relevant_chunks = text_storage.search_text(file_id, user_question, limit=2)
-                        if relevant_chunks:
-                            all_relevant_chunks.extend([
-                                f"From {file_info['filename']}: {chunk}" 
-                                for chunk in relevant_chunks
-                            ])
-                else:
-                    # Use text search for basic mode
-                    relevant_chunks = text_storage.search_text(file_id, user_question, limit=2)
-                    if relevant_chunks:
-                        all_relevant_chunks.extend([
-                            f"From {file_info['filename']}: {chunk}" 
-                            for chunk in relevant_chunks
-                        ])
+                        logger.warning(f"Fallback search failed for {file_id}: {e}")
         
-        # Build comprehensive context
-        if all_relevant_chunks:
-            document_context = f"""You are chatting about {len(file_ids)} document(s): {', '.join([info.split(': ')[1] for info in document_info])}
+        # Prioritize problem-solution chunks
+        all_chunks = problem_solution_chunks[:3] + all_relevant_chunks[:3]
+        
+        # Build comprehensive context with educational focus
+        if all_chunks:
+            # Determine if this is a problem-solving query
+            is_problem_solving = any(word in user_question.lower() for word in 
+                                   ["how", "solve", "solution", "answer", "explain", "why", "what"])
+            
+            educational_instruction = ""
+            if problem_solution_chunks:
+                educational_instruction = """
+EDUCATIONAL CONTEXT: This document contains tagged problem and solution areas. Use this structured information to provide educational guidance.
+- PROBLEM AREAS contain questions, exercises, or challenges
+- SOLUTION AREAS contain answers, explanations, or methods
+- When answering, reference both problems and solutions to provide comprehensive learning support"""
+
+            document_context = f"""You are an educational AI assistant helping with {len(file_ids)} document(s): {', '.join([info.split(': ')[1] for info in document_info])}
+{educational_instruction}
 
 Relevant content from the documents:
-{chr(10).join(all_relevant_chunks[:6])}  
+{chr(10).join(all_chunks[:6])}  
 
 {conversation_context}Current question: {user_question}
 
-Please provide a helpful answer based on the document content and conversation history."""
+Please provide a helpful educational answer. If the question relates to a problem, try to guide the student through the solution process rather than just giving the answer."""
         else:
-            document_context = f"""You are chatting about {len(file_ids)} document(s): {', '.join([info.split(': ')[1] for info in document_info])}
+            document_context = f"""You are an educational AI assistant working with {len(file_ids)} document(s): {', '.join([info.split(': ')[1] for info in document_info])}
 
 {conversation_context}Current question: {user_question}
 
-Please provide a helpful answer. No specific relevant content was found in the documents for this question."""
+Please provide a helpful educational answer. No specific relevant content was found in the documents for this question, but try to provide general guidance based on the document context."""
 
-        # Generate response with full context
-        response = await gemini_service.generate_text(user_question, document_context)
+        # Generate response with full context - use vision model if image is provided
+        if user_image:
+            logger.info("Using Gemini vision model for image-based query")
+            response = await gemini_service.generate_text_with_image(user_question, user_image, document_context)
+        else:
+            response = await gemini_service.generate_text(user_question, document_context)
         
         # Store conversation
         chat_manager.add_message(session_id, "user", user_question)
         chat_manager.add_message(session_id, "assistant", response, 
-                               context_sources=all_relevant_chunks[:3],
+                               context_sources=all_chunks[:3],
                                document_mode="multi-doc" if len(file_ids) > 1 else "single-doc")
+        
+        # Enhanced response metadata
+        response_mode = "educational"
+        if problem_solution_chunks:
+            response_mode = "problem-solution-guided"
         
         return {
             "question": user_question,
@@ -460,7 +527,9 @@ Please provide a helpful answer. No specific relevant content was found in the d
             "session_id": session_id,
             "documents_used": len(file_ids),
             "mode": "multi-doc" if len(file_ids) > 1 else "single-doc",
-            "sources": all_relevant_chunks[:3]
+            "response_mode": response_mode,
+            "problem_solution_areas_used": len(problem_solution_chunks),
+            "sources": all_chunks[:3]
         }
         
     except Exception as e:
@@ -582,6 +651,184 @@ async def translate_text(request: dict):
     except Exception as e:
         logger.error(f"Error translating text: {e}")
         raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+
+@app.post("/files/{file_id}/areas")
+async def add_document_area(file_id: str, request: dict):
+    """Add a problem/solution area to a document"""
+    try:
+        area_type = request.get("area_type")  # 'problem' or 'solution'
+        page_number = request.get("page_number")
+        coordinates = request.get("coordinates")  # {x, y, width, height}
+        content = request.get("content", "")
+
+        if not area_type or area_type not in ['problem', 'solution']:
+            raise HTTPException(status_code=400, detail="area_type must be 'problem' or 'solution'")
+        
+        if not page_number or not coordinates:
+            raise HTTPException(status_code=400, detail="page_number and coordinates are required")
+
+        # Verify file exists
+        file_info = db.get_file(file_id)
+        if not file_info:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # Generate area ID
+        area_id = str(uuid.uuid4())
+        
+        # Store area in database
+        db.add_document_area(area_id, file_id, page_number, area_type, coordinates, content)
+
+        # Extract content from PDF area if not provided
+        if not content:
+            try:
+                # Get PDF path
+                pdf_path = os.path.join(UPLOADS_DIR, f"{file_id}.pdf")
+                if os.path.exists(pdf_path):
+                    with open(pdf_path, "rb") as f:
+                        pdf_content = f.read()
+                    
+                    # Extract text from specific area
+                    area_text = await pdf_service.extract_text_from_area(
+                        pdf_content, page_number, coordinates
+                    )
+                    
+                    # Update content in database
+                    if area_text.strip():
+                        content = area_text
+                        # Update the area with extracted content
+                        with sqlite3.connect(db.db_path) as conn:
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "UPDATE document_areas SET content = ? WHERE id = ?",
+                                (content, area_id)
+                            )
+                            conn.commit()
+            except Exception as e:
+                logger.warning(f"Could not extract content from area: {e}")
+
+        # Store area-specific embedding for enhanced RAG
+        if content.strip():
+            try:
+                # Generate specialized embedding for problem/solution context
+                embedding = await gemini_service.generate_embeddings([content])
+                
+                # Store in vector database with specialized metadata
+                metadata = [{
+                    "file_id": file_id,
+                    "area_id": area_id,
+                    "area_type": area_type,
+                    "page_number": page_number,
+                    "chunk_type": f"{area_type}_area",
+                    "coordinates": coordinates
+                }]
+                
+                await vector_service.add_documents([content], embedding, metadata)
+                
+            except Exception as e:
+                logger.warning(f"Could not create embedding for area: {e}")
+
+        return {
+            "area_id": area_id,
+            "file_id": file_id,
+            "area_type": area_type,
+            "page_number": page_number,
+            "coordinates": coordinates,
+            "content": content,
+            "message": f"Successfully added {area_type} area"
+        }
+
+    except Exception as e:
+        logger.error(f"Error adding document area: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/files/{file_id}/areas")
+async def get_document_areas(file_id: str, area_type: str = None):
+    """Get problem/solution areas for a document"""
+    try:
+        # Verify file exists
+        file_info = db.get_file(file_id)
+        if not file_info:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        areas = db.get_document_areas(file_id, area_type)
+        
+        return {
+            "file_id": file_id,
+            "areas": areas,
+            "total_areas": len(areas)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting document areas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/files/{file_id}/areas/{area_id}")
+async def delete_document_area(file_id: str, area_id: str):
+    """Delete a problem/solution area"""
+    try:
+        # Verify file exists
+        file_info = db.get_file(file_id)
+        if not file_info:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # Delete from database
+        with sqlite3.connect(db.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM document_areas WHERE id = ? AND file_id = ?",
+                (area_id, file_id)
+            )
+            deleted = cursor.rowcount > 0
+            conn.commit()
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Area not found")
+
+        # Delete from vector database
+        try:
+            await vector_service.delete_by_metadata({"area_id": area_id})
+        except Exception as e:
+            logger.warning(f"Could not delete area from vector DB: {e}")
+
+        return {"message": "Area deleted successfully"}
+
+    except Exception as e:
+        logger.error(f"Error deleting document area: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/files/{file_id}/extract-area")
+async def extract_area_text(file_id: str, request: dict):
+    try:
+        page_number = request.get("page_number", 1)
+        coordinates = request.get("coordinates")
+        
+        if not coordinates:
+            raise HTTPException(status_code=400, detail="Coordinates are required")
+        
+        # Get file from database
+        db = Database()
+        file_info = db.get_file(file_id)
+        if not file_info:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Extract text from the specified area
+        pdf_service = PDFService()
+        pdf_content = Path(file_info['file_path']).read_bytes()
+        
+        extracted_text = await pdf_service.extract_text_from_area(
+            pdf_content, page_number, coordinates
+        )
+        
+        return {
+            "success": True,
+            "text": extracted_text,
+            "page_number": page_number,
+            "coordinates": coordinates
+        }
+        
+    except Exception as e:
+        logger.error(f"Error extracting area text: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

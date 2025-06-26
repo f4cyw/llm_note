@@ -83,6 +83,9 @@
                 
                 <!-- Split Layout Container -->
                 <div class="split-layout" id="splitLayout">
+                    <!-- Chat Toggle Button -->
+                    <button id="chatToggle" class="chat-toggle" title="Minimize/Expand Chat">💬</button>
+                    
                     <!-- PDF Viewer Panel -->
                     <div class="pdf-panel" id="pdfPanel" style="display: none;">
                         <div class="pdf-controls">
@@ -104,6 +107,21 @@
                                 </select>
                             </div>
                         </div>
+                        
+                        <!-- Area Selection Controls -->
+                        <div class="area-selection-toggle">
+                            <div class="area-controls">
+                                <button id="toggleAreaSelection" class="toggle-area-selection">
+                                    🔍 Select Area to Ask Questions
+                                </button>
+                                <button id="clearAreaSelections" class="clear-areas" style="display: none;">
+                                    🗑️ Clear
+                                </button>
+                            </div>
+                            <div class="area-selection-hint" style="display: none; font-size: 0.9em; color: #666; margin-top: 5px;">
+                                Drag to select text areas, then ask questions about them
+                            </div>
+                        </div>
                         <div class="pdf-viewer-container" id="pdfViewerContainer">
                             <div class="pdf-container" id="pdfContainer">
                                 <canvas id="pdfCanvas"></canvas>
@@ -113,6 +131,19 @@
                             <div id="selectionPopup" class="selection-popup" style="display: none;">
                                 <button id="askBtn">Ask about this</button>
                                 <button id="translateBtn">Translate</button>
+                            </div>
+                            
+                            <!-- Area Tagging Popup -->
+                            <div id="areaTaggingPopup" class="area-tagging-popup" style="display: none;">
+                                <h4>Tag Selected Area</h4>
+                                <div class="tag-buttons">
+                                    <button class="tag-button problem" data-type="problem">📋 Problem</button>
+                                    <button class="tag-button solution" data-type="solution">✅ Solution</button>
+                                </div>
+                                <div class="area-actions">
+                                    <button id="saveAreaBtn" class="save-area">Save Area</button>
+                                    <button id="cancelAreaBtn" class="cancel-area">Cancel</button>
+                                </div>
                             </div>
                         </div>
                     </div>
