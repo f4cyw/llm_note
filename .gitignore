@@ -8,3 +8,4 @@ project_plan.md
 test_document.py
 test_document.pdfdata/metadata.db
 data/
+test*
